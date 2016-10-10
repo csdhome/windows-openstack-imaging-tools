@@ -127,10 +127,20 @@ try
     {
         throw "Installing $CloudbaseInitMsiPath failed. Log: $CloudbaseInitMsiLog"
     }
-
+    
     $Host.UI.RawUI.WindowTitle = "Running SetSetupComplete..."
     & "$programFilesDir\Cloudbase Solutions\Cloudbase-Init\bin\SetSetupComplete.cmd"
     
+    if (Test-Path $resourcesDir\spice-guest-tools-0.100.exe)
+    {
+        $Host.UI.RawUI.WindowTitle = "Installing spice-guest-tools-0.100.exe."
+        $p = Start-Process -Wait -PassThru -FilePath $resourcesDir\spice-guest-tools-0.100.exe -ArgumentList "/S"
+        if ($p.ExitCode -ne 0)
+        {
+            $Host.UI.RawUI.WindowTitle = "Installing spice-guest-tools-0.100.exe failed."
+        }
+    }
+
     Run-Defragment
 
     Clean-UpdateResources
