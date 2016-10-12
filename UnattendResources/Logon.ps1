@@ -2,6 +2,17 @@ $ErrorActionPreference = "Stop"
 $resourcesDir = "$ENV:SystemDrive\UnattendResources"
 $configIniPath = "$resourcesDir\config.ini"
 
+
+function LogErrors() {
+    $date = Get-Date -uformat "%H:%M:%S"
+    if ($error.Count -gt 0) {
+        foreach ($err in $error) {
+            "[$date][E] $err"
+        }
+        $error.Clear()
+    }
+}
+
 function Set-PersistDrivers {
     Param(
     [parameter(Mandatory=$true)]
@@ -74,6 +85,63 @@ function Release-IP {
         }
 }
 
+function Install-Base-Dev-Languages {
+
+    $Host.UI.RawUI.WindowTitle = "Set Execution Policy to Unrestricted"
+    Set-ExecutionPolicy Unrestricted -Force
+
+    $Host.UI.RawUI.WindowTitle =  "Disable UAC"
+    Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableLUA" -Value "0"
+
+
+    $Host.UI.RawUI.WindowTitle =  "Installing PowerShell 4.0 (Requires .Net 4.0)"
+    CMD /C START /WAIT wusa $resourcesDir\Windows6.1-KB2819745-x64-MultiPkg.msu /quiet /norestart
+    Start-Sleep -Seconds 5
+    $Host.UI.RawUI.WindowTitle =  "Finished Installing PowerShell 4.0"
+
+}
+
+function Set-PageFile-Size {
+    $Host.UI.RawUI.WindowTitle =  "Set the pagefile size to 2 - 4 GB"
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" -Name "PagingFiles" -Value "C:\pagefile.sys 2048 4096"
+    
+}
+
+function Configure-Firewall {
+    $Host.UI.RawUI.WindowTitle =  "Set Firewall Rules"
+    netsh advfirewall firewall set rule group="Remote Desktop" new enable=yes
+	netsh advfirewall firewall set rule name="File and Printer Sharing (Echo Request - ICMPv4-In)" new enable=yes
+	netsh advfirewall firewall set rule name="File and Printer Sharing (Echo Request - ICMPv6-In)" new enable=yes
+}
+
+function Disable-NLA {
+    $Host.UI.RawUI.WindowTitle = "Install Password Reset Utility"
+    (Get-WmiObject -class "Win32_TSGeneralSetting" -Namespace root\cimv2\terminalservices -Filter "TerminalName='RDP-tcp'").SetUserAuthenticationRequired(0)
+    LogErrors
+}
+
+function Run-Cleanup-Routines {
+    $Host.UI.RawUI.WindowTitle = "Remove Temporary files"
+    Remove-Item "C:\bootsect.bak" -Force | Log
+    LogErrors
+
+    $Host.UI.RawUI.WindowTitle = "Empty Recycle bin"
+    $shell = New-Object -ComObject Shell.Application
+    $rb = $shell.NameSpace(0xA)
+    $rb.Items() | %{Remove-Item $_.Path -force}
+    LogErrors
+    
+    $Host.UI.RawUI.WindowTitle = "Clear all event logs"
+    wevtutil el | foreach { wevtutil cl "$_" }
+    LogErrors
+    
+    Run-Defragment
+
+    Clean-UpdateResources
+
+    Release-IP
+}
+
 try
 {
     Import-Module "$resourcesDir\ini.psm1"
@@ -113,6 +181,8 @@ try
     
     Clean-WindowsUpdates
 
+    Install-Base-Dev-Languages
+
     $Host.UI.RawUI.WindowTitle = "Installing Cloudbase-Init..."
     
     $programFilesDir = $ENV:ProgramFiles
@@ -131,21 +201,13 @@ try
     $Host.UI.RawUI.WindowTitle = "Running SetSetupComplete..."
     & "$programFilesDir\Cloudbase Solutions\Cloudbase-Init\bin\SetSetupComplete.cmd"
     
-    if (Test-Path $resourcesDir\spice-guest-tools-0.100.exe)
-    {
-        $Host.UI.RawUI.WindowTitle = "Installing spice-guest-tools-0.100.exe."
-        $p = Start-Process -Wait -PassThru -FilePath $resourcesDir\spice-guest-tools-0.100.exe -ArgumentList "/S"
-        if ($p.ExitCode -ne 0)
-        {
-            $Host.UI.RawUI.WindowTitle = "Installing spice-guest-tools-0.100.exe failed."
-        }
-    }
+    Set-PageFile-Size
 
-    Run-Defragment
+    Disable-NLA
 
-    Clean-UpdateResources
+    Configure-Firewall
 
-    Release-IP
+    Run-Cleanup-Routines
 
     $Host.UI.RawUI.WindowTitle = "Running Sysprep..."
     $unattendedXmlPath = "$programFilesDir\Cloudbase Solutions\Cloudbase-Init\conf\Unattend.xml"
