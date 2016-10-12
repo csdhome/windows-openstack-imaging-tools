@@ -87,9 +87,6 @@ function Release-IP {
 
 function Install-Base-Dev-Languages {
 
-    $Host.UI.RawUI.WindowTitle = "Set Execution Policy to Unrestricted"
-    Set-ExecutionPolicy Unrestricted -Force
-
     $Host.UI.RawUI.WindowTitle =  "Disable UAC"
     Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableLUA" -Value "0"
 
@@ -122,19 +119,21 @@ function Disable-NLA {
 
 function Run-Cleanup-Routines {
     $Host.UI.RawUI.WindowTitle = "Remove Temporary files"
-    Remove-Item "C:\bootsect.bak" -Force | Log
-    LogErrors
-
-    $Host.UI.RawUI.WindowTitle = "Empty Recycle bin"
-    $shell = New-Object -ComObject Shell.Application
-    $rb = $shell.NameSpace(0xA)
-    $rb.Items() | %{Remove-Item $_.Path -force}
-    LogErrors
+    if (Test-Path "C:\bootsect.bak")
+    {
+        try
+        {
+            Remove-Item "C:\bootsect.bak" -Force
+        }
+        catch
+        {
+            LogError
+        }
+    }
     
     $Host.UI.RawUI.WindowTitle = "Clear all event logs"
-    wevtutil el | foreach { wevtutil cl "$_" }
-    LogErrors
-    
+    wevtutil el | foreach { try{ wevtutil cl "$_" } catch { LogError } }
+        
     Run-Defragment
 
     Clean-UpdateResources
